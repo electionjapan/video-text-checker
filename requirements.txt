@@ -1,5 +1,5 @@
-streamlit==1.47.0
+streamlit>=1.47,<2
 pandas>=2.2,<3
-opencv-python-headless>=4.10,<5
-paddlepaddle==3.0.0
-paddleocr==3.1.0
+opencv-python-headless>=4.11,<5
+paddlepaddle==3.3.1
+paddleocr==3.7.0

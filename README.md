@@ -38,3 +38,14 @@
 ## 注意
 
 Community CloudはCPU・メモリに上限があります。長尺動画や高頻度OCRの本番運用は、動作確認後に社内LAN上のStreamlitサーバーへ移す想定です。
+
+
+## Streamlit Community Cloud deployment
+
+- Upload limit: **750 MB**
+- Recommended Python version: **3.12**
+- OCR stack: PaddleOCR 3.7.0 / PaddlePaddle 3.3.1
+- Main file: `streamlit_app.py`
+
+If an existing Community Cloud app was created with a different Python version,
+delete that app and redeploy it with Python 3.12 from Advanced settings.
