@@ -9,11 +9,9 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-import video_text_check as core
 
 APP_NAME = "動画テキストチェッカー"
 # Community Cloud では /tmp 配下。ローカル実行時も一時領域に保存する。
@@ -22,6 +20,14 @@ JOBS_ROOT = APP_ROOT / "jobs"
 JOBS_ROOT.mkdir(parents=True, exist_ok=True)
 
 st.set_page_config(page_title=APP_NAME, page_icon="🎬", layout="wide")
+
+@st.cache_resource(show_spinner=False)
+def get_core_module():
+    """OCR/動画処理モジュールは必要になるまで読み込まない。"""
+    import video_text_check
+    return video_text_check
+
+
 
 st.markdown(
     """
@@ -47,8 +53,9 @@ def prune_old_jobs(hours: int = 12) -> None:
         pass
 
 
-@st.cache_resource(show_spinner="OCRエンジンを準備しています…（初回はモデル取得が入ります）")
+@st.cache_resource(show_spinner="OCRエンジンを準備しています…（初回は軽量モデルを取得します）")
 def get_ocr_backend():
+    core = get_core_module()
     return core.OCRBackend(lang="japan", log=lambda _msg: None)
 
 
@@ -84,7 +91,8 @@ def result_zip_bytes(out_dir: Path) -> bytes:
     return buff.getvalue()
 
 
-def load_result_table(csv_path: Path) -> pd.DataFrame:
+def load_result_table(csv_path: Path):
+    import pandas as pd
     if not csv_path.exists():
         return pd.DataFrame()
     df = pd.read_csv(csv_path, encoding="utf-8-sig")
@@ -170,7 +178,7 @@ def show_results(result: dict, out_dir: Path) -> None:
 prune_old_jobs()
 
 st.title("🎬 動画テキストチェッカー")
-st.caption("動画内のテロップ・字幕・商品パッケージ等から、指定した文字列をOCRで探す試作版です。")
+st.caption("動画内の指定文字列をOCRで探します。Cloud軽量版：ONNX Runtime / PP-OCRv5 mobile / 最大750MB。")
 
 st.markdown(
     """
@@ -214,6 +222,13 @@ st.caption("初回はOCRモデルのダウンロードが入るため、2回目�
 run_clicked = st.button("▶ チェック開始", type="primary", use_container_width=True, disabled=uploaded is None)
 
 if run_clicked:
+    try:
+        core = get_core_module()
+    except Exception as exc:
+        st.error("動画処理モジュールの読み込みに失敗しました。")
+        st.exception(exc)
+        st.stop()
+
     targets = core.split_targets(targets_text)
     if not targets:
         st.error("探すワードを1つ以上入力してください。")

@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
-import cv2
 
 
 LogCallback = Callable[[str], None]
@@ -288,33 +287,55 @@ def find_matches(items: Sequence[OCRItem], targets: Sequence[str], threshold: fl
 
 
 class OCRBackend:
+    """Streamlit Community Cloud向け軽量OCRバックエンド。
+
+    PaddleOCR 3.7 の公式ONNX Runtimeエンジンを使い、
+    PP-OCRv5 mobile detection / recognition の2モデルだけをロードする。
+    """
+
     def __init__(self, lang: str, log: LogCallback):
-        from paddleocr import PaddleOCR
+        # PaddleXの接続先チェックを省略。モデルのダウンロード自体は必要。
+        os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "1")
 
         self.log = log
-        self.mode = "v3"
+        self.mode = "v3-onnx-mobile"
+
         try:
+            from paddleocr import PaddleOCR
+        except Exception as exc:
+            raise RuntimeError(
+                "PaddleOCRの読み込みに失敗しました。Cloud logs を確認してください。"
+            ) from exc
+
+        try:
+            # PaddleOCR公式ドキュメントにあるPP-OCRv5 mobile構成。
+            # ONNX Runtimeを使い、Community CloudでPaddlePaddle本体を不要にする。
             self.ocr = PaddleOCR(
-                lang=lang,
+                text_detection_model_name="PP-OCRv5_mobile_det",
+                text_recognition_model_name="PP-OCRv5_mobile_rec",
                 use_doc_orientation_classify=False,
                 use_doc_unwarping=False,
                 use_textline_orientation=False,
+                engine="onnxruntime",
+                device="cpu",
+                enable_mkldnn=False,
+                cpu_threads=2,
+                text_recognition_batch_size=1,
+                text_det_limit_side_len=1280,
+                text_det_limit_type="max",
             )
-            self.mode = "v3"
-        except TypeError:
-            # 旧PaddleOCR 2.x用のフォールバック
-            self.ocr = PaddleOCR(use_angle_cls=False, lang=lang, show_log=False)
-            self.mode = "v2"
-        self.log(f"OCRエンジン準備完了（PaddleOCR {self.mode} API）")
+        except Exception as exc:
+            raise RuntimeError(
+                "OCRモデルの初期化に失敗しました。"
+                "初回モデル取得・ONNX Runtime・CloudメモリのいずれかをCloud logsで確認してください。"
+            ) from exc
+
+        self.log("OCRエンジン準備完了（PaddleOCR 3.x / ONNX Runtime / PP-OCRv5 mobile）")
 
     def recognize(self, frame) -> list[OCRItem]:
-        if self.mode == "v3":
-            return self._recognize_v3(frame)
-        return self._recognize_v2(frame)
-
-    def _recognize_v3(self, frame) -> list[OCRItem]:
         output = self.ocr.predict(frame)
         items: list[OCRItem] = []
+
         for res in output:
             data = getattr(res, "json", None)
             if callable(data):
@@ -326,8 +347,10 @@ class OCRBackend:
                     data = dict(res)
                 except Exception:
                     continue
+
             if isinstance(data.get("res"), dict):
                 data = data["res"]
+
             texts = data.get("rec_texts") or []
             scores = data.get("rec_scores") or []
             polys = data.get("rec_polys")
@@ -338,32 +361,13 @@ class OCRBackend:
 
             n = min(len(texts), len(scores), len(polys))
             for i in range(n):
-                items.append(OCRItem(str(texts[i]), float(scores[i]), _safe_box(polys[i])))
-        return items
-
-    def _recognize_v2(self, frame) -> list[OCRItem]:
-        raw = self.ocr.ocr(frame, cls=False)
-        items: list[OCRItem] = []
-        if not raw:
-            return items
-        groups = raw if (raw and isinstance(raw[0], (list, tuple)) and raw[0] and isinstance(raw[0][0], (list, tuple))) else [raw]
-        # v2の標準形式は raw[0] に line 群が入る。
-        if len(groups) == 1 and groups[0] and _looks_like_v2_line(groups[0][0]):
-            line_groups = groups
-        elif raw and _looks_like_v2_line(raw[0]):
-            line_groups = [raw]
-        else:
-            line_groups = groups
-        for group in line_groups:
-            for line in group or []:
-                if not _looks_like_v2_line(line):
-                    continue
-                try:
-                    box = _safe_box(line[0])
-                    text, conf = line[1][0], line[1][1]
-                    items.append(OCRItem(str(text), float(conf), box))
-                except Exception:
-                    continue
+                items.append(
+                    OCRItem(
+                        str(texts[i]),
+                        float(scores[i]),
+                        _safe_box(polys[i]),
+                    )
+                )
         return items
 
 
@@ -374,7 +378,20 @@ def _looks_like_v2_line(line) -> bool:
         return False
 
 
+
+def _get_cv2():
+    """OpenCVは動画処理開始時にだけ読み込む。Cloud起動時のネイティブ依存エラーを避ける。"""
+    try:
+        import cv2
+        return cv2
+    except Exception as exc:
+        raise RuntimeError(
+            "OpenCVの読み込みに失敗しました。Cloud logs の詳細を確認してください。"
+        ) from exc
+
+
 def draw_match(frame, box, out_path: str | Path) -> None:
+    cv2 = _get_cv2()
     image = frame.copy()
     pts = [(int(round(p[0])), int(round(p[1]))) for p in box]
     if len(pts) >= 4:
@@ -418,6 +435,8 @@ def run(
         raise ValueError("類似度しきい値は0〜1で指定してください。")
     if not (0.0 <= min_confidence <= 1.0):
         raise ValueError("OCR信頼度しきい値は0〜1で指定してください。")
+
+    cv2 = _get_cv2()
 
     video = Path(video_path)
     if not video.exists():

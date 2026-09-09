@@ -49,3 +49,18 @@ Community CloudはCPU・メモリに上限があります。長尺動画や高�
 
 If an existing Community Cloud app was created with a different Python version,
 delete that app and redeploy it with Python 3.12 from Advanced settings.
+
+## Cloud Lite 750MB版
+
+この版はStreamlit Community Cloud向けです。
+
+- アップロード上限: 750MB
+- 推奨Python: 3.12
+- OCR: PaddleOCR 3.7.0
+- 推論エンジン: ONNX Runtime
+- モデル: PP-OCRv5_mobile_det + PP-OCRv5_mobile_rec
+- PaddlePaddle本体は使用しません
+- 重いネイティブライブラリはアプリ起動時には読み込みません
+
+Community Cloudで既存アプリのPythonバージョンを変更する場合は、
+一度アプリを削除してPython 3.12を選んで再Deployしてください。

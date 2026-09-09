@@ -1,5 +1,7 @@
-streamlit>=1.47,<2
+streamlit==1.47.0
 pandas>=2.2,<3
-opencv-python-headless>=4.11,<5
-paddlepaddle==3.3.1
+numpy>=1.26,<2
+opencv-python-headless==4.11.0.86
 paddleocr==3.7.0
+onnxruntime>=1.22,<2
+protobuf>=3.20,<6
